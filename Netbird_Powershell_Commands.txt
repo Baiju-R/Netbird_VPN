@@ -1,0 +1,3 @@
+For running the ps script, open powershell as admin from the path of the script and run :
+
+powershell.exe -ExecutionPolicy Bypass -File .\netbird-deploy.ps1
