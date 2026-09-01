@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
 
 # ==============================================================
-# TeamLogger Linux Deployment Wrapper (FIXED VERSION)
+# TeamLogger Linux Deployment Wrapper (v3.0 - Local User Edition)
 #
 # Usage:
-#   sudo ./aa_fixed.sh "<EMPLOYEE_NAME>" "<EMPLOYEE_ID>"
+#   sudo ./aa_fixed.sh "<TARGET_USERNAME>" "<EMPLOYEE_NAME>" "<EMPLOYEE_ID>"
 #
 # Example:
-#   sudo ./aa_fixed.sh "Baiju" "FSIND"
+#   sudo ./aa_fixed.sh "baiju.ravi" "Baiju" "FSIND0603"
 #
 # This script will:
-# 1. Create the employee user account if it doesn't exist
+# 1. Validate the target local user exists
 # 2. Install all required system dependencies
 # 3. Configure the system for TeamLogger
-# 4. Download and execute the TeamLogger installer
+# 4. Download and execute the TeamLogger installer for that user
 #
 # ==============================================================
 
 set -Eeuo pipefail
 
-SCRIPT_VERSION="2.0.0"
+SCRIPT_VERSION="3.0.0"
 
 TEAMLOGGER_INSTALLER_URL="https://d1ssc3nxri43sl.cloudfront.net/install_tlauto_silent.sh"
 TEAMLOGGER_BINARY_URL="${TEAMLOGGER_BINARY_URL:-https://downloads.teamlogger.com/TLAutoLinux.x64}"
@@ -32,8 +32,10 @@ LOG_FILE="${LOG_DIR}/deployment.log"
 
 BACKUP_DIR="/var/backups/teamlogger-deploy/$(date +%Y%m%d_%H%M%S)"
 
-EMPLOYEE_NAME="${1:-}"
-EMPLOYEE_ID="${2:-}"
+# NEW: Three parameters instead of two
+TARGET_USERNAME="${1:-}"
+EMPLOYEE_NAME="${2:-}"
+EMPLOYEE_ID="${3:-}"
 
 DEFAULT_TEAMLOGGER_INSTALLATION_KEY="27d0c341ef3e46158ec9042d0771463b"
 INSTALLATION_KEY="${TEAMLOGGER_INSTALLATION_KEY:-$DEFAULT_TEAMLOGGER_INSTALLATION_KEY}"
@@ -94,7 +96,7 @@ cat <<'EOF'
 
 ╔══════════════════════════════════════════════════════════════╗
 ║              TEAMLOGGER LINUX DEPLOYMENT                    ║
-║                     Deployment Wrapper v2.0                 ║
+║                 Local User Installation v3.0                ║
 ╚══════════════════════════════════════════════════════════════╝
 
 EOF
@@ -110,11 +112,18 @@ if [[ $EUID -ne 0 ]]; then
     die "This script must be executed as root."
 fi
 
-if [[ -z "$EMPLOYEE_NAME" ]]; then
-    die "Employee name is required.
+if [[ -z "$TARGET_USERNAME" ]]; then
+    die "Target username is required.
 
 Usage:
-  sudo ./aa_fixed.sh \"Employee Name\" \"EMPLOYEE_ID\""
+  sudo ./aa_fixed.sh \"target_username\" \"Employee Name\" \"Employee ID\"
+
+Example:
+  sudo ./aa_fixed.sh \"baiju.ravi\" \"Baiju\" \"FSIND0603\""
+fi
+
+if [[ -z "$EMPLOYEE_NAME" ]]; then
+    die "Employee name is required."
 fi
 
 if [[ -z "$EMPLOYEE_ID" ]]; then
@@ -200,53 +209,23 @@ chmod 700 "$BACKUP_DIR"
 
 
 # ==============================================================
-# Create employee user if it doesn't exist
+# Validate target user exists
 # ==============================================================
 
-info "Checking/Creating employee account..."
+info "Checking target user account..."
 
-if id "$EMPLOYEE_ID" >/dev/null 2>&1; then
-
-    success "Employee user '$EMPLOYEE_ID' already exists."
-    TARGET_USER="$EMPLOYEE_ID"
-
-else
-
-    info "Creating employee user '$EMPLOYEE_ID'..."
-
-    # Create user with home directory
-    useradd -m -s /bin/bash -c "$EMPLOYEE_NAME" "$EMPLOYEE_ID" 2>/dev/null || true
-
-    if id "$EMPLOYEE_ID" >/dev/null 2>&1; then
-        success "Employee user '$EMPLOYEE_ID' created successfully."
-        TARGET_USER="$EMPLOYEE_ID"
-    else
-        error "Failed to create employee user '$EMPLOYEE_ID'."
-        FAILED=1
-        TARGET_USER=""
-    fi
-
+if ! id "$TARGET_USERNAME" >/dev/null 2>&1; then
+    die "Target user '$TARGET_USERNAME' does not exist. Please create the user first."
 fi
 
+TARGET_UID="$(id -u "$TARGET_USERNAME")"
+TARGET_HOME="$(getent passwd "$TARGET_USERNAME" | cut -d: -f6)"
 
-if [[ -n "$TARGET_USER" ]]; then
+info "Target user account found: $TARGET_USERNAME"
+info "UID: $TARGET_UID"
+info "Home: $TARGET_HOME"
 
-    TARGET_UID="$(id -u "$TARGET_USER")"
-    TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
-
-    info "Local employee account: $TARGET_USER"
-    info "UID: $TARGET_UID"
-    info "Home: $TARGET_HOME"
-
-else
-
-    TARGET_UID=""
-    TARGET_HOME=""
-
-    error "Local Linux employee account could not be created or resolved."
-    FAILED=1
-
-fi
+success "Local user validation passed."
 
 
 # ==============================================================
@@ -414,7 +393,7 @@ done
 
 
 # ==============================================================
-# Install Chrome Extensions for FSIND user
+# Install Chrome Extensions for target user
 # ==============================================================
 
 install_chrome_extension() {
@@ -479,12 +458,12 @@ POLICY
 
 
 # Install URL in Title extension (ID: bjmnchckbchicjicafhinpnfodellfcd)
-if [[ -n "$TARGET_USER" && -n "$TARGET_HOME" ]]; then
+if [[ -n "$TARGET_USERNAME" && -n "$TARGET_HOME" ]]; then
 
     install_chrome_extension \
         "bjmnchckbchicjicafhinpnfodellfcd" \
         "URL in Title" \
-        "$TARGET_USER" \
+        "$TARGET_USERNAME" \
         "$TARGET_HOME"
 
 else
@@ -646,12 +625,12 @@ if [[ -n "$TARGET_HOME" && -d "$TARGET_HOME" ]]; then
 
         cat >> "$BASHRC" <<'EOF'
 
-# TeamLogger / .NET bundle extraction
+# TeamLogger / .NET environment preparation
 export DOTNET_BUNDLE_EXTRACT_BASE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/dotnet_bundle"
 
 EOF
 
-        chown "$TARGET_USER:$TARGET_USER" "$BASHRC"
+        chown "$TARGET_USERNAME:$TARGET_USERNAME" "$BASHRC"
 
         success ".NET environment prepared."
 
@@ -846,10 +825,11 @@ success "TeamLogger installer downloaded."
 success "Pre-install validation passed."
 
 echo
-echo "Employee:"
-echo "  Name : $EMPLOYEE_NAME"
-echo "  ID   : $EMPLOYEE_ID"
-echo "  User : $TARGET_USER"
+echo "Installation Details:"
+echo "  Target User : $TARGET_USERNAME"
+echo "  Employee Name: $EMPLOYEE_NAME"
+echo "  Employee ID : $EMPLOYEE_ID"
+echo "  Home Directory: $TARGET_HOME"
 
 echo
 echo "Installer:"
@@ -866,19 +846,19 @@ echo "  $LOG_FILE"
 
 INSTALL_COMPLETED=0
 
-if [[ -n "$TARGET_USER" && -n "$TARGET_HOME" ]]; then
+if [[ -n "$TARGET_USERNAME" && -n "$TARGET_HOME" ]]; then
 
-    # Check if user is logged in
-    if echo "$GRAPHICAL_USERS" | grep -Fxq "$TARGET_USER" 2>/dev/null; then
+    # Check if target user is logged in
+    if echo "$GRAPHICAL_USERS" | grep -Fxq "$TARGET_USERNAME" 2>/dev/null; then
 
-        success "Employee graphical session detected: $TARGET_USER"
+        success "Target user graphical session detected: $TARGET_USERNAME"
 
-        # Determine an active graphical session
+        # Determine an active graphical session for the target user
         SESSION_ID="$(
             loginctl list-sessions --no-legend 2>/dev/null \
             | while read -r sid uid user seat rest; do
 
-                [[ "$user" != "$TARGET_USER" ]] && continue
+                [[ "$user" != "$TARGET_USERNAME" ]] && continue
 
                 type="$(
                     loginctl show-session "$sid" \
@@ -895,18 +875,18 @@ if [[ -n "$TARGET_USER" && -n "$TARGET_HOME" ]]; then
 
         if [[ -n "$SESSION_ID" ]]; then
 
-            success "Active employee graphical session: $SESSION_ID"
+            success "Active target user graphical session: $SESSION_ID"
 
             echo
-            info "Launching the official TeamLogger installer in the employee session..."
+            info "Launching the official TeamLogger installer in the user session..."
             echo
 
             # Run the installer in the user's session
-            if sudo -u "$TARGET_USER" \
+            if sudo -u "$TARGET_USERNAME" \
                 env \
                     HOME="$TARGET_HOME" \
-                    USER="$TARGET_USER" \
-                    LOGNAME="$TARGET_USER" \
+                    USER="$TARGET_USERNAME" \
+                    LOGNAME="$TARGET_USERNAME" \
                     "$USER_STAGE" "$EMPLOYEE_NAME" "$EMPLOYEE_ID" 2>&1; then
 
                 success "TeamLogger installation completed."
@@ -948,9 +928,13 @@ if [[ $INSTALL_COMPLETED -eq 1 ]]; then
 
 else
 
-    if [[ -n "$TARGET_USER" ]]; then
+    if [[ -n "$TARGET_USERNAME" ]]; then
 
-        info "To manually complete the installation, run as the employee user:"
+        info "To manually complete the installation, run as the target user:"
+        echo
+        echo "  sudo -u $TARGET_USERNAME $USER_STAGE \"$EMPLOYEE_NAME\" \"$EMPLOYEE_ID\""
+        echo
+        echo "Or if $TARGET_USERNAME is logged in graphically:"
         echo
         echo "  $USER_STAGE \"$EMPLOYEE_NAME\" \"$EMPLOYEE_ID\""
         echo
