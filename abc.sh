@@ -771,12 +771,12 @@ EMPLOYEE_NAME="$1"
 EMPLOYEE_ID="$2"
 
 if [[ ! -f "$INSTALLER" ]]; then
-    echo "[ERROR] TeamLogger installer not found."
+    echo "[ERROR] TeamLogger installer not found at $INSTALLER"
     exit 1
 fi
 
 if [[ ! -r "$KEY_FILE" ]]; then
-    echo "[ERROR] Installation key is unavailable."
+    echo "[ERROR] Installation key is unavailable at $KEY_FILE"
     exit 1
 fi
 
@@ -784,21 +784,46 @@ INSTALLATION_KEY="$(cat "$KEY_FILE")"
 
 echo
 echo "=============================================================="
-echo " TeamLogger Employee Installation"
+echo " TeamLogger Silent Installation"
 echo "=============================================================="
 echo
-echo "Employee : $EMPLOYEE_NAME"
-echo "ID       : $EMPLOYEE_ID"
+echo "Installation Key: (hidden)"
+echo "Employee Name   : $EMPLOYEE_NAME"
+echo "Employee ID     : $EMPLOYEE_ID"
 echo
-echo "Starting TeamLogger installation..."
+echo "Starting automated installation..."
 echo
 
-# Export the installation key for the installer
-export TEAMLOGGER_INSTALLATION_KEY="$INSTALLATION_KEY"
+# Run the installer and automatically respond to prompts
+# The installer expects three inputs:
+# 1. Installation Key
+# 2. Employee Name  
+# 3. Employee ID
+#
+# We pipe them as inputs to the installer script
 
-# Run the installer
-# The installer may be interactive, so we run it directly
-"$INSTALLER" "$EMPLOYEE_NAME" "$EMPLOYEE_ID" 2>&1 || true
+printf '%s\n%s\n%s\n' \
+    "$INSTALLATION_KEY" \
+    "$EMPLOYEE_NAME" \
+    "$EMPLOYEE_ID" | \
+    bash "$INSTALLER"
+
+INSTALL_STATUS=$?
+
+echo
+echo "=============================================================="
+
+if [[ $INSTALL_STATUS -eq 0 ]]; then
+    echo "[SUCCESS] TeamLogger installation completed successfully!"
+    echo "Installation log available at: ~/.teamlogger/installation.log"
+else
+    echo "[WARNING] Installation finished with status: $INSTALL_STATUS"
+    echo "This may be normal if installation completed successfully."
+    echo "Check TeamLogger status: ps aux | grep -i teamlogger"
+fi
+
+echo "=============================================================="
+echo
 
 exit 0
 USERSTAGE
@@ -925,18 +950,21 @@ echo "=============================================================="
 if [[ $INSTALL_COMPLETED -eq 1 ]]; then
 
     success "TeamLogger installation completed successfully!"
+    success "Employee Name: $EMPLOYEE_NAME"
+    success "Employee ID: $EMPLOYEE_ID"
 
 else
 
     if [[ -n "$TARGET_USERNAME" ]]; then
 
+        warn "Automatic installation could not be launched."
         info "To manually complete the installation, run as the target user:"
         echo
-        echo "  sudo -u $TARGET_USERNAME $USER_STAGE \"$EMPLOYEE_NAME\" \"$EMPLOYEE_ID\""
+        echo "  sudo -u $TARGET_USERNAME /opt/teamlogger-deploy/run-teamlogger-user-stage.sh \"$EMPLOYEE_NAME\" \"$EMPLOYEE_ID\""
         echo
-        echo "Or if $TARGET_USERNAME is logged in graphically:"
+        echo "Or if you are already logged in as $TARGET_USERNAME:"
         echo
-        echo "  $USER_STAGE \"$EMPLOYEE_NAME\" \"$EMPLOYEE_ID\""
+        echo "  /opt/teamlogger-deploy/run-teamlogger-user-stage.sh \"$EMPLOYEE_NAME\" \"$EMPLOYEE_ID\""
         echo
 
     else
