@@ -54,7 +54,6 @@ REQUIRED_PACKAGES=(
     xorg
     x11-xserver-utils
     xdotool
-    xrandr
     maim
     xprintidle
     pipewire
